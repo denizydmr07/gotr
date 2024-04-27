@@ -16,11 +16,11 @@ package main
 
 import (
     "fmt"
-    "github.com/your/repo/path/gotr" // Update with your actual package path
+    "github.com/denizydmr07/gotr" 
 )
 
 func main() {
-    // Create a Gotr instance with the default configuration
+    // Create an instance
     traceroute := gotr.NewGotr("example.com")
     
     // Perform traceroute
@@ -41,17 +41,17 @@ package main
 import (
     "fmt"
     "time"
-    "github.com/your/repo/path/gotr" // Update with your actual package path
+    "github.com/denizydmr07/gotr"
 )
 
 func main() {
     // Create a custom configuration
     customConfig := gotr.NewConfig(20, 2*time.Second, 100*time.Millisecond, 3)
     
-    // Create a Gotr instance with the custom configuration
+    // Create an instance
     traceroute := gotr.NewGotr("example.com", customConfig)
     
-    // Perform traceroute concurrently
+    // Perform traceroute
     results := traceroute.Trace()
     
     // Display the results
