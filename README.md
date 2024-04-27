@@ -24,11 +24,11 @@ func main() {
     traceroute := gotr.NewGotr("example.com")
     
     // Perform traceroute
-    results := traceroute.Trace()
+    route := traceroute.Trace()
     
     // Display the results
-    for _, result in range results {
-        fmt.Printf("Hop %d: Address = %v, RTT = %.2f ms\n", result.TTL, result.Addr, result.RTT)
+    for _, hop := range route.Hops {
+        fmt.Printf("Hop %d: Address = %v, RTT = %.2f ms\n", hop.TTL, hop.Addr, hop.RTT)
     }
 }
 ```
@@ -55,8 +55,8 @@ func main() {
     results := traceroute.Trace()
     
     // Display the results
-    for _, result in range results,
-        fmt.Printf("Hop %d: Address = %v, RTT = %.2f ms\n", result.TTL, result.Addr, result.RTT)
+    for _, hop := range route.Hops {
+        fmt.Printf("Hop %d: Address = %v, RTT = %.2f ms\n", hop.TTL, hop.Addr, hop.RTT)
     }
 }
 ```
