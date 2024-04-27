@@ -22,6 +22,7 @@ type Hop struct {
 	rAddr       net.Addr   // address that replied to the request
 	mutex       sync.Mutex // to synchronize access to the struct, first sendTime, then elapsedTime
 	numTries    int        // number of tries
+	isEchoReply bool       // is the response an echo reply
 }
 
 type Hops struct {
@@ -83,7 +84,15 @@ func performHop(ipAddr *net.IPAddr, conn *icmp.PacketConn, ttl int, hops *Hops, 
 
 	// gettting the TTL value from the response, two bytes big-endian to integer
 	// TODO: find the hop with the corresponding TTL value from hops array
-	recvTtl := int(rb[32])<<8 | int(rb[33])
+	var recvTtl int
+	recvType := int(rb[0])
+
+	if recvType == 11 {
+		recvTtl = int(rb[32])<<8 | int(rb[33])
+	} else if recvType == 0 {
+		recvTtl = int(rb[4])<<8 | int(rb[5])
+		log.Printf("Received TTL: %d\n", recvTtl)
+	}
 
 	// get the hop with the corresponding TTL value
 	hop = &hops.hops[recvTtl-1]
@@ -99,6 +108,13 @@ func performHop(ipAddr *net.IPAddr, conn *icmp.PacketConn, ttl int, hops *Hops, 
 
 	// set the remote address of the hop
 	hop.rAddr = r_addr
+
+	// set the isEchoReply of the hop
+	if recvType == 0 {
+		hop.isEchoReply = true
+	} else {
+		hop.isEchoReply = false
+	}
 
 	// unlock the mutex of the hop
 	hop.mutex.Unlock()
@@ -194,7 +210,7 @@ func main() {
 	var wg sync.WaitGroup
 
 	// perform the hop
-	for ttl := 1; ttl <= 10; ttl++ {
+	for ttl := 1; ttl <= 15; ttl++ {
 		// increment the wait group
 		wg.Add(1)
 		// call perform hop concurrently
@@ -207,10 +223,10 @@ func main() {
 	wg.Wait()
 
 	// print the results
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 15; i++ {
 		hop := &hops.hops[i]
 		if hop.rAddr != nil {
-			log.Printf("TTL: %d, Address: %s, Elapsed Time: %.2f ms\n", hop.ttl, hop.rAddr.String(), hop.elapsedTime)
+			log.Printf("TTL: %d, Address: %s, Elapsed Time: %.2f ms, isEchoReply: %t\n", hop.ttl, hop.rAddr.String(), hop.elapsedTime, hop.isEchoReply)
 		} else {
 			log.Printf("TTL: %d, Address: %s, Elapsed Time: %.2f ms\n", hop.ttl, "Request Timed Out", 0.0)
 		}
