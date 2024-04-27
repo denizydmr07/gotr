@@ -364,17 +364,20 @@ func (g *Gotr) performHop(ipAddr *net.IPAddr, conn *icmp.PacketConn, ttl int, wg
 // indicating that the hop was unreached even after the specified number of attempts.
 //
 // The function returns an error if the traceroute process encounters any problems.
+// The function returns an empty `Route` struct if the traceroute process fails to complete.
 func (g *Gotr) Trace() Route {
 	// resolve the IP address of the destination
 	ipAddr, err := net.ResolveIPAddr("ip", g.Addr)
 	if err != nil {
 		fmt.Println("Error resolving IP address: ", err)
+		return Route{}
 	}
 
 	// create a new ICMP connection
 	conn, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0")
 	if err != nil {
 		fmt.Println("Error creating ICMP connection: ", err)
+		return Route{}
 	}
 
 	// close the connection when the function returns
