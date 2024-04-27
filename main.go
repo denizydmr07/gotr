@@ -1,4 +1,4 @@
-package gotrmock
+package gotr
 
 import (
 	"fmt"
