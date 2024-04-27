@@ -21,19 +21,49 @@ type Hop struct {
 	ttl         int        // Time to Live
 	rAddr       net.Addr   // address that replied to the request
 	mutex       sync.Mutex // to synchronize access to the struct, first sendTime, then elapsedTime
+	numTries    int        // number of tries
 }
 
-func performHop(ipAddr *net.IPAddr, conn *icmp.PacketConn, ttl int) error {
-	// create a new Hop struct
-	hop := Hop{
-		ttl: ttl,
-	}
+type Hops struct {
+	// create a new slice to store the hops, with a maximum of 30 hops
+	hops [30]Hop
+	// create a new mutex to synchronize access to the hops
+	mutex sync.Mutex
+}
+
+func performHop(ipAddr *net.IPAddr, conn *icmp.PacketConn, ttl int, hops *Hops, wg *sync.WaitGroup) {
+	defer func() {
+		// check if the hop with the corresponding TTL value is not recived
+		hops.hops[ttl-1].mutex.Lock()
+		if hops.hops[ttl-1].rAddr == nil && hops.hops[ttl-1].numTries < 3 {
+			// increment the number of tries
+			hops.hops[ttl-1].numTries++
+			// unlock the mutex of the hop
+			hops.hops[ttl-1].mutex.Unlock()
+			log.Printf("Performing hop again with TTL: %d\n", ttl)
+			// if not recieved, perform the hop again
+			performHop(ipAddr, conn, ttl, hops, wg)
+		} else {
+			// unlock the mutex of the hop
+			hops.hops[ttl-1].mutex.Unlock()
+			// decrement the wait group
+			wg.Done()
+		}
+	}()
+	hops.mutex.Lock()
+	// get the hop with the corresponding TTL value
+	hop := &hops.hops[ttl-1]
+	// set the TTL value of the hop
+	hop.ttl = ttl
+	hops.mutex.Unlock()
 
 	// send ICMP Echo Request
-	sendTime, err := sendICMPEchoRequest(ipAddr, conn, ttl, &hop)
+	sendTime, err := sendICMPEchoRequest(ipAddr, conn, ttl, hop)
 	if err != nil {
-		return err
+		return
 	}
+
+	log.Printf("Sendtime: %d\n", sendTime)
 
 	// create a new byte slice to store the response
 	rb := make([]byte, 1500)
@@ -41,7 +71,7 @@ func performHop(ipAddr *net.IPAddr, conn *icmp.PacketConn, ttl int) error {
 	// read the response from the connection
 	r_addr, recvTime, err := recvICMPEchoReply(conn, rb)
 	if err != nil {
-		return err
+		return
 	}
 
 	// ICMP echo reply is 36 bytes, 0..35
@@ -54,10 +84,12 @@ func performHop(ipAddr *net.IPAddr, conn *icmp.PacketConn, ttl int) error {
 	// gettting the TTL value from the response, two bytes big-endian to integer
 	// TODO: find the hop with the corresponding TTL value from hops array
 	recvTtl := int(rb[32])<<8 | int(rb[33])
-	log.Printf("recvTtl: %d\n", recvTtl)
+
+	// get the hop with the corresponding TTL value
+	hop = &hops.hops[recvTtl-1]
 
 	// calculate the elapsed time
-	elapsedTime := float64(recvTime-sendTime) / 1000000.0 // in milliseconds
+	elapsedTime := float64(recvTime-hop.sendTime) / 1000000.0
 
 	// lock the mutex of the hop
 	hop.mutex.Lock()
@@ -72,9 +104,7 @@ func performHop(ipAddr *net.IPAddr, conn *icmp.PacketConn, ttl int) error {
 	hop.mutex.Unlock()
 
 	// print the results
-	log.Printf("TTL: %d, Address: %s, Elapsed Time: %.2f ms\n", hop.ttl, hop.rAddr.String(), hop.elapsedTime)
-
-	return nil
+	//log.Printf("TTL: %d, Address: %s, Elapsed Time: %.2f ms\n", hop.ttl, hop.rAddr.String(), hop.elapsedTime)
 }
 
 // sendICMPEchoRequest sends an ICMP Echo Request to the specified IP address, returns the send time in UnixNan0 and an error
@@ -122,6 +152,8 @@ func sendICMPEchoRequest(ipAddr *net.IPAddr, conn *icmp.PacketConn, ttl int, hop
 }
 
 func recvICMPEchoReply(conn *icmp.PacketConn, rb []byte) (net.Addr, int64, error) {
+	// set the read deadline of the connection
+	(*conn).SetReadDeadline(time.Now().Add(3 * time.Second))
 	// read the response from the connection
 	_, r_addr, err := conn.ReadFrom(rb)
 	if err != nil {
@@ -155,8 +187,32 @@ func main() {
 	// close the connection when the function returns
 	defer conn.Close()
 
-	// perform the hop
-	ttl := 1
+	// create a new Hops struct to store the hops
+	hops := Hops{}
 
-	performHop(ipAddr, conn, ttl)
+	// ceate a wait group to wait for the hops to finish
+	var wg sync.WaitGroup
+
+	// perform the hop
+	for ttl := 1; ttl <= 10; ttl++ {
+		// increment the wait group
+		wg.Add(1)
+		// call perform hop concurrently
+		go performHop(ipAddr, conn, ttl, &hops, &wg)
+		// sleep for 50 ms
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// wait for the hops to finish
+	wg.Wait()
+
+	// print the results
+	for i := 0; i < 10; i++ {
+		hop := &hops.hops[i]
+		if hop.rAddr != nil {
+			log.Printf("TTL: %d, Address: %s, Elapsed Time: %.2f ms\n", hop.ttl, hop.rAddr.String(), hop.elapsedTime)
+		} else {
+			log.Printf("TTL: %d, Address: %s, Elapsed Time: %.2f ms\n", hop.ttl, "Request Timed Out", 0.0)
+		}
+	}
 }
