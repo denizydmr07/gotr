@@ -44,16 +44,37 @@ type config struct {
 	Retries int           // number of retries for each hop that receives no response
 }
 
-// Response represents the information returned by a hop during a traceroute.
-// It contains details about the replying address, the round-trip time (RTT),
-// and the Time To Live (TTL) value for that hop.
+// RouteHop represents information gathered from a single hop during a network traceroute operation.
+// It encapsulates details about the responding network address, the round-trip time (RTT) in milliseconds,
+// and the Time To Live (TTL) value for the corresponding hop in the route.
 //
-// This struct is typically used to communicate results from the traceroute process
-// and is returned by the `Trace` method of the `Gotr` struct.
-type Response struct {
-	Addr net.Addr // The address that replied to the ICMP request
-	RTT  float64  // The round-trip time in milliseconds
-	TTL  int      // The Time To Live value for this hop
+// This struct is commonly utilized to convey results obtained during the execution of traceroute procedures
+// and is returned as part of the response by the `Trace` method within the `Gotr` struct.
+type RouteHop struct {
+	Addr net.Addr // The network address that responded to the ICMP request
+	RTT  float64  // The round-trip time measured in milliseconds
+	TTL  int      // The Time To Live value representing the hop's position within the route
+}
+
+// Route represents a sequence of network hops obtained from a traceroute operation.
+// It comprises a collection of `RouteHop` instances, each representing a distinct hop along the route.
+//
+// If a hop fails to respond after the configured number of retries, its address will be nil,
+// indicating that the hop was unreached even after the specified number of attempts.
+type Route struct {
+	Hops []*RouteHop // A list of `RouteHop` instances representing individual hops in the route
+}
+
+// Len returns the number of hops in the route.
+//
+// This method provides the length of the route, indicating the total number
+// of hops traversed during the traceroute operation. It calculates and returns
+// the count of `RouteHop` instances stored within the `Hops` slice of the `Route` struct.
+//
+// Returns:
+// - The number of hops in the route as an integer.
+func (r Route) Len() int {
+	return len(r.Hops)
 }
 
 // newDefaultConfig creates a new default configuration for the traceroute process.
@@ -332,14 +353,18 @@ func (g *Gotr) performHop(ipAddr *net.IPAddr, conn *icmp.PacketConn, ttl int, wg
 }
 
 // Trace initiates the traceroute process to the specified target address.
-// It uses the configuration set in the `Gotr` instance to determine the number of hops, timeout, delay, and retries.
+// It utilizes the configuration set in the `Gotr` instance to determine the number of hops, timeout, delay, and retries.
 //
-// This function sends ICMP Echo Requests with increasing TTL values concurrently and listens for responses,
-// recording the elapsed time and address of each hop. It returns a slice of `Response` structs
-// containing the information about each hop in ascending order of TTL.
+// This function concurrently sends ICMP Echo Requests with increasing TTL values and listens for responses,
+// recording the elapsed time and address of each hop. It constructs and returns a `Route` struct
+// containing information about each hop in ascending order of TTL. Each `RouteHop` struct
+// includes the address of the responding hop, the round-trip time (RTT), and the TTL value.
 //
-// The function can return an error if the traceroute process encounters a problem.
-func (g *Gotr) Trace() []Response {
+// If a hop fails to respond after the configured number of retries, its address will be nil,
+// indicating that the hop was unreached even after the specified number of attempts.
+//
+// The function returns an error if the traceroute process encounters any problems.
+func (g *Gotr) Trace() Route {
 	// resolve the IP address of the destination
 	ipAddr, err := net.ResolveIPAddr("ip", g.Addr)
 	if err != nil {
@@ -371,25 +396,27 @@ func (g *Gotr) Trace() []Response {
 	// wait for all the hops to finish
 	wg.Wait()
 
-	// create a new slice to store the result
-	var result []Response
+	// create a new Route
+	route := Route{
+		Hops: make([]*RouteHop, 0),
+	}
 
 	// iterate over the hops until maxHops or until a hop is Echo Reply
 	for _, h := range g.hops {
 		// create a new response
-		resp := Response{
+		resp := RouteHop{
 			Addr: h.RAddr,
 			RTT:  h.ElapsedTime,
 			TTL:  h.TTL,
 		}
 		// append the response to the result
-		result = append(result, resp)
+		route.Hops = append(route.Hops, &resp)
 
 		if h.IsEchoReply {
 			break
 		}
 	}
 
-	// return the result
-	return result
+	// return the route
+	return route
 }
